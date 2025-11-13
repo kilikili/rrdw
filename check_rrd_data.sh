@@ -1,7 +1,7 @@
 #!/bin/bash
 # check_rrd_data.sh - 檢查 RRD 是否有資料
 
-DEVICE_IP="61.64.191.166"
+DEVICE_IP="127.0.0.1"
 RRD_DIR="data/$DEVICE_IP"
 
 echo "=========================================="
