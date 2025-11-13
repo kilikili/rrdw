@@ -1,0 +1,58 @@
+# /opt/isp_monitor/config/config.ini
+
+[database]
+# 資料庫設定（設為 false 則不使用資料庫）
+enabled = false
+host = localhost
+port = 3306
+user = isp_monitor
+password = password
+database = isp_traffic_monitor
+
+[snmp]
+# SNMP 設定
+default_community = public
+timeout = 5
+retries = 2
+port = 161
+version = 2c
+
+[rrd]
+# RRD 路徑設定
+base_dir = data
+sum_dir = data/sum
+sum2m_dir = data/sum2m
+step = 1200
+
+[collection]
+# 收集設定
+fork_threshold = 2000
+max_processes = 2
+
+[logging]
+# 日誌設定
+log_dir = /var/log/isp_traffic
+log_file = collector.log
+log_level = INFO
+
+[fair_usage]
+# Fair Usage Policy 上限（bps）
+default_limit = 2048000
+profile_3072_640 = 3072000
+profile_4096_1024 = 2800000
+
+[paths]
+# 其他路徑
+map_file_dir = maps
+overbit_log = /var/log/ob_log.txt
+
+[device_files]
+# 設備列表 TSV 檔案路徑（相對於腳本目錄）
+group_A = devices_A.tsv
+group_B = devices_B.tsv
+group_C = devices_C.tsv
+group_D = devices_D.tsv
+# 也可以使用絕對路徑：
+# group_A = /root/scripts/rrdw/devices_A.csv
+# group_B = /root/scripts/rrdw/devices_B.csv
+

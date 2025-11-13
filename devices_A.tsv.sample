@@ -1,0 +1,5 @@
+# ISP 流量收集器 - A 組設備列表 (21個)
+# 自動從 BRAS-Map.txt 產生，請勿手動編輯
+# 產生時間: 2025-11-12 19:21:37
+# 格式: Area	DEVICE_MODEL	IP	CIRCUIT	SLOT	PORT	CIRCUIT_TYPE	BANDWIDTH	IF_ASSIGN
+taipei_4	3	127.0.0.1	223GD99004	1	0	GE	880	0
