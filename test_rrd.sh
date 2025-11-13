@@ -1,7 +1,7 @@
 #!/bin/bash
 # test_final.sh
 
-DEVICE_IP="61.64.191.166"
+DEVICE_IP="127.0.0.1"
 SLOT=1
 PORT=2
 
