@@ -1,0 +1,5 @@
+# MX960 台北-01，Slot 1 Port 0
+# 使用者代碼,下載速率(Kbps),上傳速率(Kbps),ifindex,VLAN
+user01@isp.com,102400,40960,2048,200
+user02@isp.com,51200,20480,2049,201
+user03@isp.com,35840,6144,2050,202
