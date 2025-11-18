@@ -1,5 +1,0 @@
-# MX240 台中交心-01，Slot 1 Port 0（10G 介面）
-# 使用者代碼,下載速率(Kbps),上傳速率(Kbps),ifindex,VLAN
-pppoe_user1,204800,102400,3072,300
-pppoe_user2,102400,40960,3073,301
-pppoe_user3,51200,20480,3074,302

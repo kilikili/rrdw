@@ -1,2 +1,0 @@
-# MX240 south_1, Slot 1 Port 2
-pppoe01@isp.com,204800,102400,3001,3001

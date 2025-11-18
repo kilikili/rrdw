@@ -1,2 +1,0 @@
-# ACX taipei_6, Slot 0 Port 0
-fixedip01,51200,20480,1001,1001

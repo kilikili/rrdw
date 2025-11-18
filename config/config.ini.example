@@ -1,4 +1,7 @@
 # /opt/isp_monitor/config/config.ini
+[base]
+#other path base on this path to join string
+root_path = /root/scripts/
 
 [database]
 # 資料庫設定（設為 false 則不使用資料庫）
