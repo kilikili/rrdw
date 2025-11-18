@@ -1,0 +1,9 @@
+# BRAS 設備清單
+# BRAS_IP,設備類型,主機名稱,區域,頻寬上限(Mbps)
+61.64.191.74,E320,taipei_4-74,taipei_4,880
+61.64.191.76,MX960,taipei_5-76,taipei_5,880
+61.64.191.77,ACX,taipei_6-77,taipei_6,880
+61.64.191.78,MX240,south_1-78,south_1,880
+61.64.191.79,ACX,south_1-79,south_1,880
+61.64.191.80,MX240,center_1-80,center_1,880
+61.64.191.81,ACX,center_1-81,center_1,880

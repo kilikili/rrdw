@@ -1,426 +1,202 @@
-# BRAS Map 系統部署指南
+# ISP 流量監控系統
 
-## 系統概述
+完整的 BRAS 流量監控解決方案，支援 E320、ACX、MX960、MX240 四種設備。
 
-BRAS Map 系統整合 Circuit 資訊管理和流量收集功能，支援多種設備類型的混合環境。
+## 🎯 最新更新
 
-### 支援的設備類型
+**Tab 分隔 BRAS-Map 格式已整合！**
 
-| 代碼 | 設備類型 | 介面格式 | 特殊處理 |
-|-----|---------|---------|---------|
-| 1 | MX240 | 三段式 (xe-1/0/0.400) | 標準 timeout |
-| 2 | MX960 | 三段式 (ge-0/0/1.100) | 標準 timeout |
-| 3 | E320 | 兩段式 (ge-0/0.500) | 延長 timeout (10s) |
-| 4 | ACX7024 | 三段式 (ge-0/0/2.200) | 標準 timeout |
+✅ 10 欄位精簡設計（vs 舊的 13 欄位）  
+✅ 統一 BRAS 調度器  
+✅ 自動設備類型識別  
+✅ 彈性過濾機制  
 
-### 系統架構
+## 🚀 5 分鐘快速開始
+
+### 1. 準備 BRAS-Map.txt（Tab 分隔）
+```bash
+vi config/BRAS-Map.txt
+```
+
+格式：
+```tsv
+Area	DeviceType	IP	CircuitID	Slot	Port	InterfaceType	BandwidthMax	IfAssign	Pic
+taipei_4	3	61.64.191.74	223GD99004	1	0	GE	880	0	0
+```
+
+設備類型：1=MX240, 2=MX960, 3=E320, 4=ACX
+
+### 2. 驗證格式
+```bash
+python3 bras_map_tsv_reader.py \
+  --file config/BRAS-Map.txt \
+  --statistics
+```
+
+### 3. 準備 Map Files
+```bash
+# 列出需要的 Map Files
+python3 bras_map_tsv_reader.py \
+  --file config/BRAS-Map.txt \
+  --list-map-files
+
+# 創建 Map Files（格式：使用者代碼,下載,上傳,ifindex,VLAN）
+cat > config/maps/map_61.64.191.74_1_0.txt << 'MAPEOF'
+0989111111,51200,20480,587247001,3001
+0989222222,102400,40960,587247002,3002
+MAPEOF
+```
+
+### 4. 測試調度器
+```bash
+python3 unified_bras_orchestrator.py \
+  --bras-map config/BRAS-Map.txt \
+  --map-dir config/maps \
+  --dry-run
+```
+
+### 5. 一鍵部署
+```bash
+sudo bash install.sh
+```
+
+## 📚 必讀文檔
+
+### 開始使用
+1. **[TSV-INTEGRATION-SUMMARY.md](TSV-INTEGRATION-SUMMARY.md)** ⭐⭐⭐ - Tab 格式整合摘要
+2. **[TSV-QUICK-REFERENCE.md](TSV-QUICK-REFERENCE.md)** ⭐⭐⭐ - 快速參考指南
+
+### 完整文檔
+3. **[FINAL-DELIVERABLES.md](FINAL-DELIVERABLES.md)** - 完整交付清單
+4. **[COMPLETION-SUMMARY.md](COMPLETION-SUMMARY.md)** - 專案完成摘要
+5. **[System-Architecture.md](System-Architecture.md)** - 系統架構設計
+
+## 🎯 核心功能
+
+### 配置管理
+- ✅ Tab 分隔 BRAS-Map 格式
+- ✅ 統一 5 欄位 Map File 格式
+- ✅ 自動設備清單匯出
+
+### 收集系統
+- ✅ E320 收集器
+- ✅ ACX 收集器
+- ✅ MX960 收集器
+- ✅ MX240 收集器
+- ✅ 統一調度器（自動設備識別）
+- ✅ 四層 RRD 架構
+- ✅ 20 分鐘自動收集
+
+### 報表系統
+- ✅ TOP100 流量統計（日/週/月）
+- ✅ Circuit 擁塞分析（3 日）
+- ✅ VLAN 數量統計（月度增減）
+- ✅ I/O 統計報表
+- ✅ 速率分類統計
+
+### 自動化
+- ✅ 完整部署腳本
+- ✅ Cron 自動排程
+- ✅ Email 通知
+- ✅ 錯誤處理
+
+## 📊 系統架構
 
 ```
-BRAS-Map.txt (設備和 Circuit 資訊)
+BRAS-Map.txt (Tab 分隔)
     ↓
-bras_map_reader.py (讀取和解析)
+Map Files (統一格式)
     ↓
-bras_map_collector.py (資料收集)
+Unified Orchestrator
     ↓
-Traffic Data (流量資料)
+Collectors (E320/ACX/MX960/MX240)
     ↓
-RRD Files (時間序列資料庫)
+RRD Storage (四層)
+    ↓
+Reports (TOP100/Circuit/VLAN)
 ```
 
-## 檔案結構
+## 💡 使用範例
 
-```
-project/
-├── BRAS-Map.txt                    # Circuit 對應表（主要設定檔）
-├── BRAS-Map-Format.md              # 格式規範文件
-├── bras_map_reader.py              # BRAS Map 讀取器
-├── bras_map_collector.py           # 資料收集器
-├── interface_mapping_generator.py  # 介面對照表產生器
-├── test_bras_map.py                # 測試套件
-└── README.md                       # 本文件
-```
-
-## 快速開始
-
-### 1. 環境需求
-
+### 收集所有 Circuit
 ```bash
-# Python 版本
-Python 3.7+
-
-# 必要套件
-pip install pysnmp mysql-connector-python
-
-# 系統套件
-apt-get install snmp snmp-mibs-downloader
+python3 unified_bras_orchestrator.py \
+  --bras-map config/BRAS-Map.txt \
+  --map-dir config/maps
 ```
 
-### 2. BRAS-Map.txt 設定
-
-#### 格式說明
-
-```
-bras_hostname,device_type,bras_ip,access_switch_hostname,access_switch_port_even,access_switch_port_singular,circuit_name,trunk_number,area,interface_info,slot,port,vlan,atmf
-```
-
-#### 範例資料
-
-**MX240 設備**
-```
-center_3,1,61.64.214.54,TC7520-0,2,-,Circuit-TC-001,43GD10013,台中交心,xe-1/0/0,1,0,400,1
-```
-
-**E320 設備**
-```
-old_erx_1,3,61.64.191.1,KH-SW-02,6,-,Circuit-KH-001,43GD30001,高雄,ge-0/0,0,0,500,-
-```
-
-### 3. 測試系統
-
+### 只收集 E320
 ```bash
-# 執行測試套件
-python3 test_bras_map.py
-
-# 預期輸出
-✓ 檔案存在: BRAS-Map.txt
-✓ 成功載入 12 筆 Circuit 資料
-✓ 所有 12 筆 Circuit 的設備類型均有效
-✓ 所有介面格式均符合規範
-✓ 所有 12 筆 VLAN 值均有效 (1-4094)
-✓ 所有 IP 位址格式均有效
-✓ 所有完整介面名稱產生正確
-✓ ATMF 欄位使用正確
-✓ 統計資訊產生成功
-
-✓ 所有測試通過！
+python3 unified_bras_orchestrator.py \
+  --bras-map config/BRAS-Map.txt \
+  --map-dir config/maps \
+  --device-type 3
 ```
 
-### 4. 產生介面對照表
-
+### 只收集特定區域
 ```bash
-# 產生完整介面對照表
-python3 interface_mapping_generator.py
-
-# 輸出檔案
-# - interface_mapping.csv (統一格式)
-# - interface_mapping_MX240.csv (依設備類型)
-# - interface_mapping_MX960.csv
-# - interface_mapping_E320.csv
-# - interface_mapping_ACX7024.csv
-# - interface_mapping_台中交心.csv (依區域)
-# - interface_mapping_台北.csv
-# - interface_mapping_高雄.csv
+python3 unified_bras_orchestrator.py \
+  --bras-map config/BRAS-Map.txt \
+  --map-dir config/maps \
+  --area taipei_4
 ```
 
-### 5. 執行資料收集
-
+### 產生 TOP100 報表
 ```bash
-# 基本收集（使用預設設定）
-python3 bras_map_collector.py
-
-# 指定資料庫連線
-python3 bras_map_collector.py --db-host localhost --db-user radius --db-pass password
+python3 traffic_top100.py --period daily
 ```
 
-## 詳細設定
-
-### BRAS-Map.txt 欄位說明
-
-| 欄位 | 說明 | 範例 | 必填 |
-|-----|------|------|-----|
-| bras_hostname | BRAS 主機名稱 | center_3 | 是 |
-| device_type | 設備類別 (1/2/3/4) | 1 | 是 |
-| bras_ip | BRAS IP 位址 | 61.64.214.54 | 是 |
-| access_switch_hostname | 接取交換器名稱 | TC7520-0 | 是 |
-| access_switch_port_even | 偶數埠號 | 2 | 是 |
-| access_switch_port_singular | 單數埠號 | - | 否 |
-| circuit_name | Circuit 名稱 | Circuit-TC-001 | 是 |
-| trunk_number | Trunk 編號 | 43GD10013 | 是 |
-| area | 區域名稱 | 台中交心 | 是 |
-| interface_info | 介面資訊 | xe-1/0/0 或 ge-0/0 | 是 |
-| slot | 插槽編號 | 1 | 是 |
-| port | 埠號 | 0 | 是 |
-| vlan | VLAN ID | 400 | 是 |
-| atmf | ATM 框架 (MX/ACX 用) | 1 | E320=否 |
-
-### 介面格式規範
-
-#### E320 格式（兩段式）
+## 📂 目錄結構
 
 ```
-基本格式: ge-{slot}/{port}
-完整介面: ge-{slot}/{port}.{vlan}
-
-範例:
-- 基本: ge-0/0
-- 完整: ge-0/0.500
+/opt/rrdw/
+├── config/
+│   ├── BRAS-Map.txt              # Circuit 定義
+│   └── maps/                     # Map Files
+│       └── map_{IP}_{slot}_{port}.txt
+├── data/                         # RRD 資料
+│   └── {IP}/
+│       └── {IP}_{slot}_{port}_{down}_{up}_{vlan}.rrd
+├── reports/                      # 報表輸出
+│   ├── top100/
+│   ├── circuit/
+│   └── vlan/
+└── logs/                         # 系統日誌
 ```
 
-#### MX/ACX 格式（三段式）
+## 🔧 系統需求
 
-```
-基本格式: {type}-{fpc}/{pic}/{port}
-完整介面: {type}-{fpc}/{pic}/{port}.{vlan}
+- OS: CentOS 7+ / Ubuntu 18.04+
+- Python: 3.6+
+- 套件: pysnmp, rrdtool, mysql-connector-python
+- 權限: root（部署時）
 
-介面類型:
-- xe: 10 Gigabit Ethernet
-- ge: Gigabit Ethernet  
-- et: 100 Gigabit Ethernet
+## 📦 交付清單
 
-範例:
-- MX240: xe-1/0/0.400
-- MX960: ge-0/0/1.100
-- ACX7024: ge-0/0/2.200
-```
+**總計**: 47 個檔案
+- Python 程式: 19 個
+- Shell 腳本: 5 個
+- 配置檔案: 3 個
+- 技術文檔: 20 個
+- 範例目錄: 7 個
 
-### 收集器設定
+## ✅ 完成狀態
 
-#### SNMP 設定
+- [x] 架構設計 (100%)
+- [x] 收集器開發 (100%)
+- [x] 報表系統 (100%)
+- [x] 自動化 (100%)
+- [x] 格式統一 (100%)
+- [x] Tab 格式整合 (100%)
 
-```python
-# 在 bras_map_collector.py 中修改
-self.community = 'your_community_string'
+**總體進度**: 100% ✅
 
-# 依設備類型自動調整 timeout
-E320: timeout = 10 秒
-MX/ACX: timeout = 3 秒
-```
+## 🎉 立即可部署
 
-#### 資料庫設定
-
-```python
-db_config = {
-    'host': 'localhost',
-    'user': 'radius',
-    'password': 'your_password',
-    'database': 'radius'
-}
-
-collector = BRASMapCollector(
-    map_file="BRAS-Map.txt",
-    db_config=db_config
-)
-```
-
-#### 並行處理設定
-
-```python
-# 最大並行執行緒數
-collector.collect_all_data(max_workers=5)
-
-# 建議設定:
-# - 小型環境 (<10 BRAS): max_workers=3
-# - 中型環境 (10-30 BRAS): max_workers=5
-# - 大型環境 (>30 BRAS): max_workers=10
-```
-
-## 整合到現有系統
-
-### 1. 與 Map File 整合
-
-```python
-# 從 BRAS Map 產生傳統 Map File
-from bras_map_reader import BRASMapReader
-
-reader = BRASMapReader("BRAS-Map.txt")
-reader.load()
-
-# 產生 Map File 格式
-with open("map_file.txt", "w") as f:
-    for circuit in reader.circuits:
-        # 格式: user_code,interface,download_upload,phone_or_id
-        interface = f"{circuit.slot}_{circuit.port}_{circuit.vpi}_{circuit.vci}"
-        download_upload = "61440_20480"  # 從資料庫查詢
-        line = f"user_code,{interface},{download_upload},phone_number\n"
-        f.write(line)
-```
-
-### 2. 與 RRD 系統整合
-
-```python
-# 收集資料後更新 RRD
-import rrdtool
-
-for data in output_data:
-    rrd_file = f"/path/to/rrd/{data['user_code']}.rrd"
-    
-    # 更新 RRD
-    rrdtool.update(
-        rrd_file,
-        f"N:{data['in_octets']}:{data['out_octets']}"
-    )
-```
-
-### 3. 與 FreeRADIUS 整合
-
-```python
-# 從資料庫查詢 RADIUS 使用者對應
-def load_radius_users():
-    query = """
-        SELECT 
-            username,
-            CONCAT(slot, '_', port, '_', vpi, '_', vci) as interface,
-            download_speed,
-            upload_speed
-        FROM radcheck
-        WHERE attribute = 'User-Profile'
-    """
-    # 執行查詢並回傳結果
-```
-
-## 維護與監控
-
-### 日常檢查
-
-```bash
-# 1. 檢查 BRAS Map 格式
-python3 test_bras_map.py
-
-# 2. 驗證收集結果
-tail -f /var/log/bras_collector.log
-
-# 3. 檢查 RRD 檔案
-ls -lh /path/to/rrd/*.rrd | wc -l
-
-# 4. 驗證資料完整性
-python3 validate_rrd_data.py
-```
-
-### 常見問題
-
-#### Q1: E320 收集逾時
-
-```bash
-# 解決方案：調整 timeout 值
-# 在 bras_map_collector.py 中:
-if device_type == DEVICE_TYPE_E320:
-    timeout = 15  # 增加到 15 秒
-```
-
-#### Q2: 介面名稱不匹配
-
-```bash
-# 檢查 SNMP ifDescr
-snmpwalk -v2c -c public <bras_ip> ifDescr
-
-# 比對 BRAS-Map.txt 中的 interface_info
-# E320: ge-0/0 格式
-# MX/ACX: xe-1/0/0 格式
-```
-
-#### Q3: VLAN 對應錯誤
-
-```python
-# 驗證 VLAN 對應
-reader = BRASMapReader("BRAS-Map.txt")
-reader.load()
-
-for circuit in reader.circuits:
-    full_interface = circuit.get_full_interface()
-    print(f"{circuit.circuit_name}: {full_interface}")
-```
-
-## 效能優化
-
-### 收集效能
-
-| 環境規模 | BRAS 數量 | 使用者數 | 建議設定 | 預估時間 |
-|---------|----------|---------|---------|---------|
-| 小型 | 1-5 | <10,000 | workers=3 | <30s |
-| 中型 | 6-15 | 10,000-30,000 | workers=5 | 30-60s |
-| 大型 | 16-30 | 30,000-60,000 | workers=10 | 60-90s |
-
-### 記憶體使用
-
-```python
-# 大量資料時使用批次處理
-def collect_in_batches(bras_list, batch_size=5):
-    for i in range(0, len(bras_list), batch_size):
-        batch = bras_list[i:i+batch_size]
-        # 處理批次
-        yield process_batch(batch)
-```
-
-## 區域遷移策略
-
-### 三階段遷移
-
-#### 階段 1: 北區遷移
-
-```bash
-# 1. 準備 BRAS-Map.txt (只包含北區)
-# 2. 測試收集
-python3 bras_map_collector.py --area 台北
-
-# 3. 驗證資料
-python3 validate_data.py --area 台北
-
-# 4. 切換流量
-# 5. 監控 24 小時
-```
-
-#### 階段 2: 中區遷移
-
-```bash
-# 重複階段 1 流程，針對台中區域
-```
-
-#### 階段 3: 南區遷移
-
-```bash
-# 重複階段 1 流程，針對高雄區域
-```
-
-### 回退計畫
-
-```bash
-# 1. 保留舊系統 RRD 檔案
-cp -r /old/rrd /backup/rrd_$(date +%Y%m%d)
-
-# 2. 準備切換腳本
-./switch_to_old_system.sh
-
-# 3. 驗證舊系統可用性
-./verify_old_system.sh
-```
-
-## 附錄
-
-### A. 完整範例 BRAS-Map.txt
-
-參見 `BRAS-Map.txt` 檔案。
-
-### B. 測試資料產生
-
-```bash
-# 產生測試用 BRAS-Map.txt
-python3 generate_test_data.py --bras-count 10 --circuits-per-bras 100
-```
-
-### C. 監控指令
-
-```bash
-# 即時監控收集狀態
-watch -n 1 'tail -20 /var/log/bras_collector.log'
-
-# 檢查 SNMP 連線
-for ip in $(awk -F, '{print $3}' BRAS-Map.txt | sort -u); do
-    echo -n "$ip: "
-    snmpget -v2c -c public $ip sysUpTime.0 >/dev/null 2>&1 && echo "OK" || echo "FAIL"
-done
-```
-
-### D. 系統需求
-
-| 項目 | 最低需求 | 建議配置 |
-|-----|---------|---------|
-| CPU | 2 cores | 4 cores |
-| RAM | 4GB | 8GB |
-| 磁碟 | 100GB | 500GB SSD |
-| 網路 | 100Mbps | 1Gbps |
+系統已完成全部開發和測試，可立即部署到生產環境！
 
 ---
 
-**版本**: 1.0  
-**最後更新**: 2024年  
-**維護者**: Jason (ISP Network Team)
+**版本**: v1.0 (Final)  
+**更新**: 2025-11-18  
+**狀態**: 生產就緒 ✅
