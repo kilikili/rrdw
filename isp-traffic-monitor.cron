@@ -1,0 +1,47 @@
+# ISP 流量監控系統 - Cron 設定
+# 安裝: sudo cp isp-traffic-monitor.cron /etc/cron.d/isp-traffic-monitor
+# 確保檔案權限: sudo chmod 644 /etc/cron.d/isp-traffic-monitor
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# ============================================
+# 流量收集（每 20 分鐘）
+# ============================================
+*/20 * * * * root /usr/bin/python3 /opt/rrdw/collector_dispatcher.py >> /var/log/rrdw/collector.log 2>&1
+
+# ============================================
+# 每日報表
+# ============================================
+# 每天凌晨 2:00 產生日報
+0 2 * * * root /bin/bash /opt/rrdw/generate_daily_reports.sh
+
+# 每天凌晨 5:00 分析 Circuit 擁塞
+0 5 * * * root /usr/bin/python3 /opt/rrdw/circuit_congestion_analysis.py --days 3 --output-dir /var/reports/daily >> /var/log/rrdw/congestion.log 2>&1
+
+# ============================================
+# 週報（每週一凌晨 3:00）
+# ============================================
+0 3 * * 1 root /bin/bash /opt/rrdw/generate_weekly_reports.sh
+
+# ============================================
+# 月報（每月 1 日凌晨 4:00）
+# ============================================
+0 4 1 * * root /bin/bash /opt/rrdw/generate_monthly_reports.sh
+
+# ============================================
+# 收集狀態檢查（每小時的第 25 分）
+# ============================================
+25 * * * * root /bin/bash /opt/rrdw/check_collection_status.sh >> /var/log/rrdw/monitor.log 2>&1
+
+# ============================================
+# 日誌輪轉（每天凌晨 1:00）
+# ============================================
+0 1 * * * root find /var/log/rrdw -name "*.log" -mtime +30 -delete
+
+# ============================================
+# 舊報表清理（每週日凌晨 6:00）
+# ============================================
+0 6 * * 0 root find /var/reports -name "*.txt" -mtime +90 -delete
+0 6 * * 0 root find /var/reports -name "*.csv" -mtime +90 -delete
+0 6 * * 0 root find /var/reports -name "*.html" -mtime +90 -delete
