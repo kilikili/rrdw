@@ -1,15 +1,17 @@
-# /opt/isp_monitor/config/config.ini
+# RRDW Traffic Collection System - Configuration File
+# 完整配置檔案範本
+
 [base]
-#other path base on this path to join string
-root_path = /root/scripts/
+# 系統基礎路徑
+root_path = /opt/isp_monitor
 
 [database]
-# 資料庫設定（設為 false 則不使用資料庫）
+# 資料庫設定 (設為 false 則不使用資料庫)
 enabled = false
 host = localhost
 port = 3306
 user = isp_monitor
-password = password
+password = your_password_here
 database = isp_traffic_monitor
 
 [snmp]
@@ -20,42 +22,93 @@ retries = 2
 port = 161
 version = 2c
 
+# 設備專用 SNMP 參數
+e320_timeout = 10
+e320_retries = 3
+
 [rrd]
-# RRD 路徑設定
+# RRD 路徑設定 (相對於 root_path)
 base_dir = data
+user_dir = data/user
 sum_dir = data/sum
 sum2m_dir = data/sum2m
+circuit_dir = data/circuit
+
+# RRD 參數
 step = 1200
+heartbeat = 2400
+
+# RRA 設定 (保留策略)
+# 格式: steps:rows
+# 1步(20分鐘) * 2160筆 = 30天
+rra_daily = 1:2160
+# 6步(2小時) * 1460筆 = ~4個月
+rra_monthly = 6:1460
+# 72步(1天) * 1095筆 = ~3年
+rra_yearly = 72:1095
 
 [collection]
 # 收集設定
 fork_threshold = 2000
-max_processes = 2
+max_processes = 4
+
+# 平行處理參數
+enable_multiprocessing = true
+chunk_size = 500
+
+# SNMP Bulk Walking 參數
+bulk_max_repetitions = 50
+bulk_non_repeaters = 0
 
 [logging]
 # 日誌設定
-log_dir = /var/log/isp_traffic
+log_dir = logs
 log_file = collector.log
 log_level = INFO
+log_max_bytes = 10485760
+log_backup_count = 5
 
 [fair_usage]
-# Fair Usage Policy 上限（bps）
+# Fair Usage Policy 上限 (bps)
+enabled = true
 default_limit = 2048000
 profile_3072_640 = 3072000
 profile_4096_1024 = 2800000
+profile_5120_1024 = 3500000
 
 [paths]
-# 其他路徑
-map_file_dir = maps
-overbit_log = /var/log/ob_log.txt
+# 其他路徑設定 (相對於 root_path)
+map_file_dir = config/maps
+bras_map_file = config/BRAS-Map.txt
+reports_dir = reports
+temp_dir = /tmp/isp_monitor
 
-[device_files]
-# 設備列表 TSV 檔案路徑（相對於腳本目錄）
-group_A = devices_A.tsv
-group_B = devices_B.tsv
-group_C = devices_C.tsv
-group_D = devices_D.tsv
-# 也可以使用絕對路徑：
-# group_A = /root/scripts/rrdw/devices_A.csv
-# group_B = /root/scripts/rrdw/devices_B.csv
+[device_types]
+# 設備類型對應
+# 1 = E320 (Legacy BRAS)
+# 2 = MX960 (Dynamic IP, High Capacity)
+# 3 = MX240 (Dynamic IP with PPPoE)
+# 4 = ACX7024 (Fixed IP Services)
 
+[interface_formats]
+# 介面格式設定
+e320_format = ge-{slot}/{port}/{pic}.{vci}
+mx_format = ge-{fpc}/{pic}/{port}:{vci}
+
+[performance]
+# 效能調校參數
+interface_cache_enabled = true
+interface_cache_ttl = 3600
+connection_pool_size = 10
+
+[monitoring]
+# 監控設定
+enable_health_check = true
+health_check_interval = 300
+alert_email = monitoring@example.com
+
+[backup]
+# 備份設定
+enable_backup = false
+backup_dir = /backup/isp_monitor
+backup_retention_days = 30
