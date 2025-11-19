@@ -250,7 +250,7 @@ class BaseCollector:
     
     def collect_all_users(self) -> CollectionStats:
         """
-        收集所有用戶流量
+        收集所有用戶流量（使用 snmpwalk 批次查詢優化版）
         
         Returns:
             收集統計
@@ -261,11 +261,20 @@ class BaseCollector:
         
         logger.info(f"開始收集 {self.stats.total} 個用戶")
         
-        for user in self.users:
-            if self.collect_user_traffic(user):
-                self.stats.success += 1
-            else:
-                self.stats.failed += 1
+        # 使用批次 snmpwalk 收集
+        if self.config.use_snmpwalk_batch:
+            logger.info("使用 snmpwalk 批次收集模式")
+            success_count = self._collect_batch_snmpwalk()
+            self.stats.success = success_count
+            self.stats.failed = self.stats.total - success_count
+        else:
+            # 逐個收集（原始方式）
+            logger.info("使用逐個收集模式")
+            for user in self.users:
+                if self.collect_user_traffic(user):
+                    self.stats.success += 1
+                else:
+                    self.stats.failed += 1
         
         self.stats.end_time = time.time()
         
@@ -275,6 +284,95 @@ class BaseCollector:
         )
         
         return self.stats
+    
+    def _collect_batch_snmpwalk(self) -> int:
+        """
+        使用 snmpwalk 批次收集所有用戶（內部方法）
+        
+        Returns:
+            成功收集的用戶數
+        """
+        # 建立介面索引映射
+        # 對於沒有 ifindex 的用戶，需要先查詢介面清單建立映射
+        users_need_ifindex = [u for u in self.users if u.if_index is None]
+        users_have_ifindex = [u for u in self.users if u.if_index is not None]
+        
+        # 如果有用戶需要查詢 ifindex，先建立介面映射
+        if_name_to_index = {}
+        if users_need_ifindex:
+            logger.info(f"{len(users_need_ifindex)} 個用戶需要查詢 ifindex")
+            
+            # 取得所有介面
+            interfaces = self.snmp.get_interface_descriptions(use_cache=True)
+            
+            # 建立名稱到索引的映射
+            for if_index, if_descr in interfaces.items():
+                if_name_to_index[if_descr] = if_index
+            
+            # 為用戶填入 ifindex
+            for user in users_need_ifindex:
+                if user.interface_name in if_name_to_index:
+                    user.if_index = if_name_to_index[user.interface_name]
+                else:
+                    logger.warning(f"找不到介面 {user.interface_name} 的索引")
+        
+        # 收集所有需要的 ifindex
+        required_indexes = set()
+        for user in self.users:
+            if user.if_index:
+                required_indexes.add(str(user.if_index))
+        
+        if not required_indexes:
+            logger.error("沒有有效的 ifindex，無法收集")
+            return 0
+        
+        logger.info(f"使用 snmpwalk 查詢 {len(required_indexes)} 個介面")
+        
+        # 執行 snmpwalk 批次查詢
+        # 查詢出站流量 (ifHCOutOctets)
+        out_octets_results = self.snmp.snmpwalk_cli(
+            self.snmp.OID_IF_HC_OUT_OCTETS,
+            required_indexes
+        )
+        
+        # 查詢入站流量 (ifHCInOctets)
+        in_octets_results = self.snmp.snmpwalk_cli(
+            self.snmp.OID_IF_HC_IN_OCTETS,
+            required_indexes
+        )
+        
+        if not out_octets_results and not in_octets_results:
+            logger.error("snmpwalk 查詢失敗")
+            return 0
+        
+        logger.info(
+            f"取得 {len(out_octets_results)} 個出站計數器, "
+            f"{len(in_octets_results)} 個入站計數器"
+        )
+        
+        # 更新每個用戶的 RRD
+        success_count = 0
+        for user in self.users:
+            if not user.if_index:
+                continue
+            
+            ifindex_str = str(user.if_index)
+            
+            # 取得計數器值
+            outbound = out_octets_results.get(ifindex_str, 0)
+            inbound = in_octets_results.get(ifindex_str, 0)
+            
+            if outbound == 0 and inbound == 0:
+                logger.debug(f"用戶 {user.username} (ifindex={ifindex_str}) 無流量資料")
+                continue
+            
+            # 更新 RRD
+            if self.rrd.update_user_rrd(user.username, inbound, outbound):
+                success_count += 1
+            else:
+                logger.warning(f"更新用戶 {user.username} RRD 失敗")
+        
+        return success_count
     
     def run(self) -> bool:
         """

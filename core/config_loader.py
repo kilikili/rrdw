@@ -121,6 +121,11 @@ class ConfigLoader:
         return self.getint('snmp', 'retries', 2)
     
     @property
+    def use_snmpwalk_batch(self) -> bool:
+        """是否使用 snmpwalk 批次收集（預設開啟）"""
+        return self.getboolean('snmp', 'use_snmpwalk_batch', True)
+    
+    @property
     def e320_timeout(self) -> int:
         """E320 專用超時時間"""
         return self.getint('snmp', 'e320_timeout', 10)

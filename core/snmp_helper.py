@@ -7,8 +7,13 @@ snmp_helper.py - SNMP 輔助工具
 
 import time
 import logging
-from typing import Dict, Optional, List, Tuple
-from pysnmp.hlapi import *
+import subprocess
+import re
+from typing import Dict, Optional, List, Tuple, Set
+from pysnmp.hlapi import (
+    SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+    ObjectType, ObjectIdentity, getCmd, bulkCmd
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +152,117 @@ class SNMPHelper:
             logger.error(f"Bulk Walk 失敗: {e}")
         
         return results
+    
+    def snmpwalk_cli(self, oid: str, required_indexes: Set[str] = None) -> Dict[str, int]:
+        """
+        使用命令行 snmpwalk 批次取得介面資料（效能優化版）
+        
+        相比 pysnmp bulkCmd，命令行工具對 E320 等舊設備更友善
+        
+        Args:
+            oid: 要查詢的 OID（通常是 ifHCOutOctets）
+            required_indexes: 需要的 ifindex 集合（字串型態），None 表示全部
+        
+        Returns:
+            {ifindex: counter_value} 字典
+        """
+        logger.info(f"使用 snmpwalk 查詢 {self.device_ip} (timeout={self.timeout}s)...")
+        start_time = time.time()
+        
+        try:
+            # 執行 snmpwalk，使用 -On 輸出數字格式 OID
+            cmd = [
+                'snmpwalk',
+                '-v', self.snmp_version,
+                '-c', self.community,
+                '-t', str(self.timeout),
+                '-r', str(self.retries),
+                '-On',  # 數字格式 OID
+                self.device_ip,
+                oid
+            ]
+            
+            logger.debug(f"執行命令: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=self.timeout * (self.retries + 1) + 30
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"snmpwalk 執行失敗: {result.stderr}")
+                return {}
+            
+            # 解析輸出
+            # 格式: .1.3.6.1.2.1.31.1.1.1.10.5933254 = Counter64: 12345678
+            results = {}
+            lines = result.stdout.strip().split('\n')
+            
+            logger.debug(f"snmpwalk 返回 {len(lines)} 行結果")
+            
+            for line in lines:
+                if not line.strip() or '=' not in line:
+                    continue
+                
+                try:
+                    # 分割 OID 和值
+                    oid_part, value_part = line.split('=', 1)
+                    
+                    # 從 OID 提取 ifindex
+                    # OID 格式: .1.3.6.1.2.1.31.1.1.1.10.{ifindex}
+                    oid_str = oid_part.strip()
+                    ifindex = oid_str.split('.')[-1]
+                    
+                    # 如果指定了 required_indexes，只保留需要的
+                    if required_indexes is not None and ifindex not in required_indexes:
+                        continue
+                    
+                    # 解析值
+                    value_str = value_part.strip()
+                    
+                    # 移除類型標籤（Counter64:, Gauge32: 等）
+                    if ':' in value_str:
+                        value_str = value_str.split(':', 1)[1].strip()
+                    
+                    # 清理非數字字元
+                    value_str = re.sub(r'[^\d]', '', value_str)
+                    
+                    if not value_str:
+                        continue
+                    
+                    value = int(value_str)
+                    results[ifindex] = value
+                
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"解析行失敗: {line} - {e}")
+                    continue
+            
+            elapsed = time.time() - start_time
+            
+            if required_indexes:
+                logger.info(
+                    f"✓ snmpwalk 完成: 取得 {len(results)}/{len(required_indexes)} 個介面, "
+                    f"耗時 {elapsed:.1f} 秒"
+                )
+            else:
+                logger.info(
+                    f"✓ snmpwalk 完成: 取得 {len(results)} 個介面, "
+                    f"耗時 {elapsed:.1f} 秒"
+                )
+            
+            return results
+            
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - start_time
+            logger.error(f"snmpwalk 超時（{elapsed:.1f}秒）")
+            return {}
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"snmpwalk 執行異常（{elapsed:.1f}秒）: {e}")
+            return {}
     
     def get_system_description(self) -> Optional[str]:
         """

@@ -10,6 +10,11 @@ default_community = public
 timeout = 5
 retries = 2
 
+# 使用 snmpwalk 批次收集（大幅提升效能，強烈建議開啟）
+# true = 使用 snmpwalk 一次取得所有介面資料（快速，5-10倍速度提升）
+# false = 逐個查詢每個介面（慢速，僅用於相容性測試）
+use_snmpwalk_batch = true
+
 # E320 專用參數（較慢的設備需要較長的 timeout）
 e320_timeout = 10
 e320_retries = 3

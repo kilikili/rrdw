@@ -11,7 +11,10 @@ import os
 from typing import List, Dict
 
 try:
-    from pysnmp.hlapi import *
+    from pysnmp.hlapi import (
+        SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+        ObjectType, ObjectIdentity, bulkCmd
+    )
 except ImportError:
     print("錯誤: 缺少 pysnmp 套件")
     print("請執行: pip3 install pysnmp")
