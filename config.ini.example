@@ -1,0 +1,78 @@
+[base]
+# 系統根路徑
+root_path = /opt/isp_monitor
+
+[snmp]
+# SNMP Community String
+default_community = public
+
+# SNMP 超時時間（秒）
+timeout = 5
+retries = 2
+
+# E320 專用參數（較慢的設備需要較長的 timeout）
+e320_timeout = 10
+e320_retries = 3
+
+[rrd]
+# RRD 基礎目錄（相對於 root_path 或絕對路徑）
+base_dir = data
+
+# RRD 參數
+step = 1200          # 20 分鐘
+heartbeat = 2400     # 40 分鐘
+
+# RRA 定義（保留時間）
+rra_daily = 2160     # 30 天
+rra_monthly = 1460   # ~4 個月
+rra_yearly = 1095    # ~3 年
+
+[collection]
+# 收集參數
+fork_threshold = 2000    # 超過此數量時使用多進程
+max_processes = 4        # 最大進程數
+bulk_walk_chunk = 50     # Bulk Walk 每次請求數
+
+[logging]
+# 日誌設定
+log_dir = logs
+log_level = INFO         # DEBUG, INFO, WARNING, ERROR
+log_format = %%(asctime)s - %%(name)s - %%(levelname)s - %%(message)s
+max_bytes = 10485760     # 10 MB
+backup_count = 5         # 保留 5 個備份
+
+[paths]
+# 檔案路徑
+map_file_dir = config/maps
+bras_map_file = config/BRAS-Map.txt
+
+[database]
+# MySQL/MariaDB 設定（用於用戶資料庫）
+host = localhost
+port = 3306
+database = radius
+user = radius
+password = your_password_here
+
+[email]
+# 郵件通知設定
+enabled = false
+smtp_server = smtp.gmail.com
+smtp_port = 587
+smtp_user = alert@example.com
+smtp_password = your_email_password
+from_addr = alert@example.com
+to_addrs = admin@example.com
+
+[monitoring]
+# 監控設定
+enable_resource_monitor = true
+cpu_threshold = 80       # CPU 使用率警告閾值（%）
+memory_threshold = 80    # 記憶體使用率警告閾值（%）
+disk_threshold = 90      # 磁碟使用率警告閾值（%）
+
+[performance]
+# 效能調優
+interface_cache_ttl = 3600    # 介面快取時間（秒）
+connection_pool_size = 10     # 連線池大小
+worker_timeout = 300          # Worker 超時時間（秒）

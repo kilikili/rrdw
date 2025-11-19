@@ -1,0 +1,93 @@
+# BRAS-Map.txt - BRAS 設備映射檔案
+#
+# 此檔案定義所有需要收集的 BRAS 設備
+# Dispatcher 會讀取此檔案，自動調度對應的收集器
+#
+# 格式（TSV）:
+# Area	DeviceType	IP	CircuitID	Slot	Port	InterfaceType	BandwidthMax	IfAssign	PIC
+#
+# 欄位說明:
+#   Area          - 區域 (North/Central/South)
+#   DeviceType    - 設備類型 (1=MX240, 2=MX960, 3=E320, 4=ACX7024)
+#   IP            - 設備 IP 位址
+#   CircuitID     - 電路 ID
+#   Slot          - 插槽編號 (E320) / FPC (MX/ACX)
+#   Port          - 埠號
+#   InterfaceType - 介面類型 (ge, xe, et)
+#   BandwidthMax  - 最大頻寬 (bps)
+#   IfAssign      - 介面分配方式
+#   PIC           - PIC 編號
+#
+# 注意事項:
+#   - 使用 TAB 分隔（不是空格）
+#   - DeviceType 必須正確對應設備型號
+#   - IP 必須可達且 SNMP 已啟用
+#   - 每個設備需要對應的 map_<IP>.txt 檔案
+
+# ============================================================================
+# 北區設備
+# ============================================================================
+
+# MX240 設備（PPPoE）
+North	1	61.64.191.74	CIRCUIT_N_MX240_01	1	0	ge	10000000000	1	0
+North	1	61.64.191.75	CIRCUIT_N_MX240_02	1	0	ge	10000000000	1	0
+
+# MX960 設備（High Capacity）
+North	2	61.64.191.80	CIRCUIT_N_MX960_01	1	0	ge	10000000000	1	0
+North	2	61.64.191.81	CIRCUIT_N_MX960_02	1	0	ge	10000000000	1	0
+
+# E320 設備（Legacy BRAS）
+North	3	61.64.191.78	CIRCUIT_N_E320_01	1	2	ge	1000000000	1	0
+North	3	61.64.191.79	CIRCUIT_N_E320_02	1	2	ge	1000000000	1	0
+
+# ============================================================================
+# 中區設備
+# ============================================================================
+
+# MX240 設備
+Central	1	61.64.192.74	CIRCUIT_C_MX240_01	1	0	ge	10000000000	1	0
+
+# MX960 設備
+Central	2	61.64.192.80	CIRCUIT_C_MX960_01	1	0	ge	10000000000	1	0
+
+# E320 設備
+Central	3	61.64.192.78	CIRCUIT_C_E320_01	1	2	ge	1000000000	1	0
+
+# ACX7024 設備（Fixed IP Services）
+Central	4	61.64.192.90	CIRCUIT_C_ACX7024_01	0	0	ge	1000000000	1	0
+
+# ============================================================================
+# 南區設備
+# ============================================================================
+
+# MX240 設備
+South	1	61.64.193.74	CIRCUIT_S_MX240_01	1	0	ge	10000000000	1	0
+
+# MX960 設備
+South	2	61.64.193.80	CIRCUIT_S_MX960_01	1	0	ge	10000000000	1	0
+
+# E320 設備
+South	3	61.64.193.78	CIRCUIT_S_E320_01	1	2	ge	1000000000	1	0
+
+# ============================================================================
+# 設備類型速查表
+# ============================================================================
+# DeviceType 1 = MX240 (PPPoE)
+#   - 介面格式: ge-fpc/pic/port:vci
+#   - SNMP timeout: 5 秒
+#   - 範例: ge-1/0/2:3490
+#
+# DeviceType 2 = MX960 (High Capacity)
+#   - 介面格式: ge-fpc/pic/port:vci
+#   - SNMP timeout: 5 秒
+#   - 範例: ge-1/0/2:3490
+#
+# DeviceType 3 = E320 (Legacy)
+#   - 介面格式: ge-slot/port/pic.vci
+#   - SNMP timeout: 10 秒
+#   - 範例: ge-1/2/0.3490
+#
+# DeviceType 4 = ACX7024 (Fixed IP)
+#   - 介面格式: ge-fpc/pic/port:vci
+#   - SNMP timeout: 5 秒
+#   - 範例: ge-0/0/0:100

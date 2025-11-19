@@ -1,340 +1,269 @@
 #!/usr/bin/env python3
 """
-ISP Traffic Monitor - Map檔案範本產生工具
-根據BRAS-Map.txt和實際SNMP查詢結果，產生各設備的map_{ip}.txt範本
+generate_map_template.py - Map 檔案範本產生器
+
+根據 SNMP 查詢結果產生 Map 檔案範本
 """
 
 import sys
-import os
 import argparse
-import subprocess
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+import os
+from typing import List, Dict
 
-class MapTemplateGenerator:
-    """Map檔案範本產生器"""
+try:
+    from pysnmp.hlapi import *
+except ImportError:
+    print("錯誤: 缺少 pysnmp 套件")
+    print("請執行: pip3 install pysnmp")
+    sys.exit(1)
+
+
+def get_interfaces(host: str, community: str, timeout: int = 5) -> List[Dict]:
+    """
+    取得設備所有介面
     
-    def __init__(self, snmp_community='public', snmp_timeout=5):
-        self.community = snmp_community
-        self.timeout = snmp_timeout
-        
-    def read_bras_map(self, bras_map_file: str) -> List[Dict]:
-        """讀取BRAS-Map.txt檔案"""
-        devices = []
-        
-        with open(bras_map_file, 'r') as f:
-            # 跳過標題行
-            header = f.readline().strip().split('\t')
+    Returns:
+        介面列表 [{index, name}, ...]
+    """
+    print(f"正在查詢設備 {host} 的介面...")
+    
+    interfaces = []
+    oid_ifdescr = '1.3.6.1.2.1.2.2.1.2'
+    
+    try:
+        for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
+            SnmpEngine(),
+            CommunityData(community, mpModel=1),
+            UdpTransportTarget((host, 161), timeout=timeout, retries=1),
+            ContextData(),
+            0, 50,
+            ObjectType(ObjectIdentity(oid_ifdescr)),
+            lexicographicMode=False
+        ):
+            if errorIndication:
+                print(f"錯誤: {errorIndication}")
+                return []
             
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
+            if errorStatus:
+                print(f"SNMP 錯誤: {errorStatus.prettyPrint()}")
+                return []
+            
+            for varBind in varBinds:
+                oid_str = str(varBind[0])
+                if_descr = str(varBind[1])
                 
-                parts = line.split('\t')
-                if len(parts) >= 10:
-                    device = {
-                        'area': parts[0],
-                        'device_type': int(parts[1]),
-                        'ip': parts[2],
-                        'circuit_id': parts[3],
-                        'slot': parts[4],
-                        'port': parts[5],
-                        'interface_type': parts[6],
-                        'bandwidth_max': int(parts[7]),
-                        'if_assign': parts[8],
-                        'pic': parts[9]
-                    }
-                    devices.append(device)
+                # 解析介面索引
+                parts = oid_str.split('.')
+                if len(parts) > 0:
+                    if_index = int(parts[-1])
+                    interfaces.append({
+                        'index': if_index,
+                        'name': if_descr
+                    })
         
-        return devices
+        print(f"✓ 找到 {len(interfaces)} 個介面")
+        return interfaces
     
-    def query_snmp_interfaces(self, ip: str) -> Dict[str, str]:
-        """查詢設備的SNMP介面清單"""
-        print(f"正在查詢 {ip} 的介面清單...")
+    except Exception as e:
+        print(f"查詢失敗: {e}")
+        return []
+
+
+def parse_interface_name(if_name: str, device_type: int) -> Dict:
+    """
+    解析介面名稱
+    
+    Args:
+        if_name: 介面名稱
+        device_type: 設備類型 (1=MX240, 2=MX960, 3=E320, 4=ACX7024)
+    
+    Returns:
+        {slot, port, vpi, vci} 或 None
+    """
+    # E320: ge-1/2/0.3490
+    # MX/ACX: ge-1/0/2:3490
+    
+    if device_type == 3:  # E320
+        # 格式: ge-slot/port/pic.vci 或 xe-slot/port/pic.vci
+        if '.' not in if_name:
+            return None
         
         try:
-            # 使用snmpwalk查詢ifDescr
-            cmd = [
-                'snmpwalk',
-                '-v', '2c',
-                '-c', self.community,
-                '-t', str(self.timeout),
-                ip,
-                'ifDescr'
-            ]
+            # 移除介面類型前綴
+            parts = if_name.split('-', 1)[1]  # 移除 ge- 或 xe-
+            path, vci = parts.split('.')
+            slot, port, pic = path.split('/')
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout + 5
-            )
-            
-            if result.returncode != 0:
-                print(f"  警告: SNMP查詢失敗: {result.stderr}")
-                return {}
-            
-            # 解析結果
-            interfaces = {}
-            for line in result.stdout.split('\n'):
-                if 'IF-MIB::ifDescr' in line or 'ifDescr' in line:
-                    # 格式: IF-MIB::ifDescr.1 = STRING: ge-0/0/0
-                    parts = line.split('=')
-                    if len(parts) == 2:
-                        index_part = parts[0].strip()
-                        desc_part = parts[1].strip()
-                        
-                        # 提取index
-                        if '.' in index_part:
-                            index = index_part.split('.')[-1]
-                        else:
-                            continue
-                        
-                        # 提取介面名稱
-                        if 'STRING:' in desc_part:
-                            interface_name = desc_part.split('STRING:')[1].strip()
-                        else:
-                            interface_name = desc_part.strip()
-                        
-                        interfaces[index] = interface_name
-            
-            print(f"  找到 {len(interfaces)} 個介面")
-            return interfaces
-            
-        except subprocess.TimeoutExpired:
-            print(f"  警告: SNMP查詢超時")
-            return {}
-        except Exception as e:
-            print(f"  警告: 查詢時發生錯誤: {e}")
-            return {}
+            return {
+                'slot': int(slot),
+                'port': int(port),
+                'vpi': int(pic),  # E320 的 PIC 對應 VPI
+                'vci': int(vci)
+            }
+        except:
+            return None
     
-    def detect_device_type(self, ip: str, snmp_interfaces: Dict[str, str]) -> str:
-        """根據介面名稱格式偵測設備類型"""
-        if not snmp_interfaces:
-            return 'unknown'
+    else:  # MX/ACX
+        # 格式: ge-fpc/pic/port:vci
+        if ':' not in if_name:
+            return None
         
-        # 取第一個介面名稱作為判斷依據
-        sample_interface = list(snmp_interfaces.values())[0]
-        
-        if 'ge-' in sample_interface:
-            # 計算斜線數量
-            slash_count = sample_interface.count('/')
-            if slash_count == 1:
-                return 'E320'  # ge-slot/port
-            elif slash_count == 2:
-                return 'MX/ACX'  # ge-fpc/pic/port
-        
-        return 'unknown'
-    
-    def generate_map_template_e320(self, ip: str, slot: str, port: str, 
-                                   output_file: str, num_users: int = 10):
-        """生成E320格式的map檔案範本"""
-        print(f"\n生成 E320 格式範本: {output_file}")
-        print(f"  設備: {ip}")
-        print(f"  插槽/埠: {slot}/{port}")
-        print(f"  範例用戶數: {num_users}")
-        
-        # 常見的速度方案 (kbps)
-        speed_plans = [
-            (5120, 384),      # 5M/384K
-            (16384, 3072),    # 16M/3M
-            (35840, 6144),    # 35M/6M
-            (61440, 20480),   # 60M/20M
-            (102400, 40960),  # 100M/40M
-        ]
-        
-        with open(output_file, 'w') as f:
-            for i in range(num_users):
-                # 循環使用速度方案
-                downstream, upstream = speed_plans[i % len(speed_plans)]
-                
-                # 生成範例資料
-                username = f"user{i+1:04d}"  # user0001, user0002...
-                vpi = 0
-                vci = 3000 + i
-                user_id = 587000000 + i
-                
-                # 格式: username,slot_port_vpi_vci,downstream_upstream,user_id
-                line = f"{username},{slot}_{port}_{vpi}_{vci},{downstream}_{upstream},{user_id}\n"
-                f.write(line)
-        
-        print(f"  ✓ 範本已生成: {output_file}")
-    
-    def generate_map_template_mx(self, ip: str, slot: str, port: str, pic: str,
-                                 output_file: str, num_users: int = 10):
-        """生成MX/ACX格式的map檔案範本"""
-        print(f"\n生成 MX/ACX 格式範本: {output_file}")
-        print(f"  設備: {ip}")
-        print(f"  插槽/PIC/埠: {slot}/{pic}/{port}")
-        print(f"  範例用戶數: {num_users}")
-        
-        # 常見的速度方案 (kbps)
-        speed_plans = [
-            (10240, 2048),    # 10M/2M
-            (20480, 4096),    # 20M/4M
-            (51200, 10240),   # 50M/10M
-            (102400, 20480),  # 100M/20M
-            (307200, 102400), # 300M/100M
-        ]
-        
-        with open(output_file, 'w') as f:
-            for i in range(num_users):
-                # 循環使用速度方案
-                downstream, upstream = speed_plans[i % len(speed_plans)]
-                
-                # 生成範例資料
-                username = f"user{i+1:04d}"  # user0001, user0002...
-                vlan = 1000 + i
-                user_id = 587000000 + i
-                
-                # 格式: username,slot_pic_port_vlan,downstream_upstream,user_id
-                line = f"{username},{slot}_{pic}_{port}_{vlan},{downstream}_{upstream},{user_id}\n"
-                f.write(line)
-        
-        print(f"  ✓ 範本已生成: {output_file}")
-    
-    def generate_all_templates(self, bras_map_file: str, output_dir: str, 
-                              num_users: int = 10, query_snmp: bool = False):
-        """根據BRAS-Map.txt生成所有設備的map檔案範本"""
-        print("=" * 70)
-        print("Map檔案範本產生器")
-        print("=" * 70)
-        
-        # 讀取BRAS-Map.txt
-        print(f"\n讀取 BRAS-Map.txt: {bras_map_file}")
-        devices = self.read_bras_map(bras_map_file)
-        print(f"找到 {len(devices)} 個設備")
-        
-        # 確保輸出目錄存在
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
-        # 按IP分組設備
-        devices_by_ip = {}
-        for device in devices:
-            ip = device['ip']
-            if ip not in devices_by_ip:
-                devices_by_ip[ip] = []
-            devices_by_ip[ip].append(device)
-        
-        print(f"\n將為 {len(devices_by_ip)} 個不同IP的設備生成範本")
-        print()
-        
-        # 為每個IP生成範本
-        for ip, ip_devices in devices_by_ip.items():
-            # 使用第一個device的資訊
-            first_device = ip_devices[0]
-            device_type = first_device['device_type']
-            slot = first_device['slot']
-            port = first_device['port']
-            pic = first_device['pic']
+        try:
+            parts = if_name.split('-', 1)[1]
+            path, vci = parts.split(':')
+            fpc, pic, port = path.split('/')
             
-            # 生成檔案名稱
-            output_file = os.path.join(output_dir, f"map_{ip}.txt")
-            
-            # 如果要查詢SNMP，先檢查設備
-            if query_snmp:
-                interfaces = self.query_snmp_interfaces(ip)
-                if interfaces:
-                    detected_type = self.detect_device_type(ip, interfaces)
-                    print(f"  偵測到設備類型: {detected_type}")
-            
-            # 根據設備類型生成範本
-            if device_type == 3:  # E320
-                self.generate_map_template_e320(
-                    ip, slot, port, output_file, num_users
-                )
-            else:  # MX/ACX系列 (Type 1, 2, 4)
-                self.generate_map_template_mx(
-                    ip, slot, port, pic, output_file, num_users
-                )
+            return {
+                'slot': int(fpc),   # FPC → Slot
+                'port': int(port),
+                'vpi': int(pic),    # PIC → VPI
+                'vci': int(vci)
+            }
+        except:
+            return None
+
+
+def generate_map_file(host: str, community: str, device_type: int, 
+                     output_file: str, timeout: int = 5):
+    """
+    產生 Map 檔案範本
+    
+    Args:
+        host: 設備 IP
+        community: SNMP Community
+        device_type: 設備類型
+        output_file: 輸出檔案路徑
+        timeout: SNMP 超時時間
+    """
+    # 取得介面清單
+    interfaces = get_interfaces(host, community, timeout)
+    
+    if not interfaces:
+        print("✗ 無法取得介面清單")
+        return False
+    
+    # 篩選有效的 VLAN 介面
+    valid_interfaces = []
+    for iface in interfaces:
+        parsed = parse_interface_name(iface['name'], device_type)
+        if parsed:
+            valid_interfaces.append({
+                'name': iface['name'],
+                'parsed': parsed
+            })
+    
+    if not valid_interfaces:
+        print("✗ 沒有找到有效的 VLAN 介面")
+        return False
+    
+    print(f"✓ 找到 {len(valid_interfaces)} 個有效 VLAN 介面")
+    
+    # 產生 Map 檔案
+    device_names = {1: 'MX240', 2: 'MX960', 3: 'E320', 4: 'ACX7024'}
+    device_name = device_names.get(device_type, 'Unknown')
+    
+    print(f"\n產生 Map 檔案: {output_file}")
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        # 寫入檔頭
+        f.write(f"# Map File for {device_name} - {host}\n")
+        f.write(f"# Generated by generate_map_template.py\n")
+        f.write(f"#\n")
+        f.write(f"# 格式: UserID,Slot_Port_VPI_VCI,Download_Upload(bps),AccountID\n")
+        f.write(f"#\n")
+        f.write(f"# 請編輯此檔案:\n")
+        f.write(f"#   1. 設定實際的 UserID\n")
+        f.write(f"#   2. 設定正確的頻寬 (Download_Upload)\n")
+        f.write(f"#   3. 設定 AccountID (電話號碼或 Email)\n")
+        f.write(f"#\n")
+        f.write(f"# 常見頻寬:\n")
+        f.write(f"#   102.4M/40.96M  → 102400_40960\n")
+        f.write(f"#   51.2M/10.24M   → 51200_10240\n")
+        f.write(f"#   25.6M/5.12M    → 25600_5120\n")
+        f.write(f"#   10M/2M         → 10240_2048\n")
+        f.write(f"#\n\n")
         
-        print()
-        print("=" * 70)
-        print(f"所有範本已生成到: {output_dir}")
-        print("=" * 70)
-        print()
-        print("下一步:")
-        print("1. 檢查生成的map檔案範本")
-        print("2. 替換範例用戶資料為實際用戶資料")
-        print("3. 確認速度方案正確")
-        print("4. 使用 validate_map_file.py 驗證格式")
+        # 寫入範本資料（前 20 個）
+        count = 0
+        for iface in valid_interfaces[:20]:
+            p = iface['parsed']
+            interface_str = f"{p['slot']}_{p['port']}_{p['vpi']}_{p['vci']}"
+            user_id = f"user_{count+1:03d}"
+            bandwidth = "102400_40960"  # 預設頻寬
+            account = "0912345678"       # 預設帳號
+            
+            f.write(f"{user_id},{interface_str},{bandwidth},{account}\n")
+            count += 1
+        
+        # 如果超過 20 個，寫入註解
+        if len(valid_interfaces) > 20:
+            f.write(f"\n# ... 還有 {len(valid_interfaces) - 20} 個介面未列出\n")
+            f.write(f"# 請根據實際需求編輯此檔案\n")
+    
+    print(f"✓ Map 檔案已產生: {output_file}")
+    print(f"  包含 {min(count, 20)} 筆範本資料")
+    print(f"\n請編輯此檔案並設定:")
+    print(f"  1. 實際的 UserID")
+    print(f"  2. 正確的頻寬")
+    print(f"  3. 實際的 AccountID")
+    
+    return True
+
 
 def main():
+    """主程式"""
     parser = argparse.ArgumentParser(
-        description='Map檔案範本產生工具',
+        description='Map 檔案範本產生器',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-範例:
-  # 從BRAS-Map.txt生成所有範本 (每個設備10個範例用戶)
-  python3 generate_map_template.py -b config/BRAS-Map.txt -o config/maps/
+使用範例:
+  # MX240 設備
+  python3 generate_map_template.py --host 61.64.191.74 --type 1 \\
+    --output map_61.64.191.74.txt
   
-  # 生成範本並查詢SNMP驗證設備類型
-  python3 generate_map_template.py -b config/BRAS-Map.txt -o config/maps/ --query-snmp
+  # E320 設備
+  python3 generate_map_template.py --host 61.64.191.78 --type 3 \\
+    --output map_61.64.191.78.txt
   
-  # 生成範本，每個設備20個範例用戶
-  python3 generate_map_template.py -b config/BRAS-Map.txt -o config/maps/ -n 20
+  # 指定 community 和 timeout
+  python3 generate_map_template.py --host 61.64.191.78 --type 3 \\
+    --community private --timeout 10 \\
+    --output map_61.64.191.78.txt
+
+設備類型:
+  1 = MX240
+  2 = MX960
+  3 = E320
+  4 = ACX7024
         """
     )
     
-    parser.add_argument(
-        '-b', '--bras-map',
-        required=True,
-        help='BRAS-Map.txt檔案路徑'
-    )
-    
-    parser.add_argument(
-        '-o', '--output-dir',
-        required=True,
-        help='輸出目錄'
-    )
-    
-    parser.add_argument(
-        '-n', '--num-users',
-        type=int,
-        default=10,
-        help='每個設備的範例用戶數 (預設: 10)'
-    )
-    
-    parser.add_argument(
-        '--query-snmp',
-        action='store_true',
-        help='查詢SNMP以驗證設備類型'
-    )
-    
-    parser.add_argument(
-        '-c', '--community',
-        default='public',
-        help='SNMP community string (預設: public)'
-    )
-    
-    parser.add_argument(
-        '-t', '--timeout',
-        type=int,
-        default=5,
-        help='SNMP查詢超時時間 (秒, 預設: 5)'
-    )
+    parser.add_argument('--host', required=True, help='設備 IP 位址')
+    parser.add_argument('--type', type=int, required=True, choices=[1,2,3,4],
+                       help='設備類型 (1=MX240, 2=MX960, 3=E320, 4=ACX7024)')
+    parser.add_argument('--output', required=True, help='輸出檔案路徑')
+    parser.add_argument('--community', default='public', help='SNMP Community')
+    parser.add_argument('--timeout', type=int, default=5, help='SNMP 超時時間（秒）')
     
     args = parser.parse_args()
     
-    # 檢查BRAS-Map.txt是否存在
-    if not os.path.exists(args.bras_map):
-        print(f"錯誤: BRAS-Map.txt 不存在: {args.bras_map}")
-        sys.exit(1)
+    # 檢查輸出目錄
+    output_dir = os.path.dirname(args.output)
+    if output_dir and not os.path.exists(output_dir):
+        print(f"建立目錄: {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
     
-    # 建立產生器
-    generator = MapTemplateGenerator(
-        snmp_community=args.community,
-        snmp_timeout=args.timeout
+    # 產生 Map 檔案
+    success = generate_map_file(
+        args.host,
+        args.community,
+        args.type,
+        args.output,
+        args.timeout
     )
     
-    # 生成範本
-    generator.generate_all_templates(
-        bras_map_file=args.bras_map,
-        output_dir=args.output_dir,
-        num_users=args.num_users,
-        query_snmp=args.query_snmp
-    )
+    sys.exit(0 if success else 1)
+
 
 if __name__ == '__main__':
     main()
